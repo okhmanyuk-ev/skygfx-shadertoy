@@ -21,6 +21,22 @@ file(GLOB ALL_SRC
 
 add_executable(${PROJECT_NAME} ${ALL_SRC})
 
+# emscripten
+
+if(EMSCRIPTEN)
+	set_target_properties(${PROJECT_NAME} PROPERTIES OUTPUT_NAME "index")
+	set(EXECUTABLE_OUTPUT_PATH ${CMAKE_SOURCE_DIR}/output)
+	set(CMAKE_EXECUTABLE_SUFFIX .html)
+
+	set(FLAGS "${FLAGS} -s ALLOW_MEMORY_GROWTH=1")
+	set(FLAGS "${FLAGS} -s USE_WEBGL2=1")
+	set(FLAGS "${FLAGS} -s USE_GLFW=3")
+	set(FLAGS "${FLAGS} -gsource-map")
+	set(FLAGS "${FLAGS} --shell-file ${CMAKE_SOURCE_DIR}/emscripten/shell.html")
+
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${FLAGS}")
+endif()
+
 # skygfx
 
 add_subdirectory(lib/skygfx)
@@ -29,12 +45,14 @@ target_link_libraries(${PROJECT_NAME} skygfx)
 
 # glfw
 
-set(GLFW_INSTALL OFF)
-set(GLFW_BUILD_DOCS OFF)
-add_subdirectory(lib/skygfx/examples/lib/glfw)
-set_property(TARGET glfw PROPERTY FOLDER ${LIBS_FOLDER}/glfw)
-set_property(TARGET update_mappings PROPERTY FOLDER ${LIBS_FOLDER}/glfw)
-target_link_libraries(${PROJECT_NAME} glfw)
+if (NOT EMSCRIPTEN)
+	set(GLFW_INSTALL OFF)
+	set(GLFW_BUILD_DOCS OFF)
+	add_subdirectory(lib/skygfx/examples/lib/glfw)
+	set_property(TARGET glfw PROPERTY FOLDER ${LIBS_FOLDER}/glfw)
+	set_property(TARGET update_mappings PROPERTY FOLDER ${LIBS_FOLDER}/glfw)
+	target_link_libraries(${PROJECT_NAME} glfw)
+endif()
 
 # imgui
 
