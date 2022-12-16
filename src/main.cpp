@@ -3,6 +3,21 @@
 #include "../lib/skygfx/examples/utils/imgui_helper.h"
 #include <imgui.h>
 
+#ifdef EMSCRIPTEN
+#include <emscripten/html5.h>
+
+std::function<void(int, int)> resize_func;
+EM_BOOL ResizeCallback(int eventType, const EmscriptenUiEvent *e, void *userData)
+{
+	int w = (int) e->windowInnerWidth;
+	int h = (int) e->windowInnerHeight;
+	//w *= emscripten_get_device_pixel_ratio();
+	//h *= emscripten_get_device_pixel_ratio();
+	resize_func(w, h);
+	return 0;
+}
+#endif
+
 std::function<void()> loop_func;
 void loop() { loop_func(); }
 
@@ -19,31 +34,22 @@ int main()
 		skygfx::Resize(static_cast<uint32_t>(width), static_cast<uint32_t>(height));
 	});
 
+#ifdef EMSCRIPTEN
+	resize_func = [&](int w, int h) {
+		glfwSetWindowSize(window, w, h);
+	};
+
+	double canvas_w, canvas_h;
+	emscripten_get_element_css_size("#canvas", &canvas_w, &canvas_h);
+	glfwSetWindowSize(window, (int)canvas_w, (int)canvas_h);
+	emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, NULL, false, ResizeCallback);
+#endif
+
 	auto imgui = ImguiHelper(window);
 
 	loop_func = [&]{
 		imgui.newFrame();
 		ImGui::ShowDemoWindow();
-
-		ImGui::Begin("Test");
-		ImGui::Text("%d", skygfx::GetWidth());
-		ImGui::Text("%d", skygfx::GetHeight());
-		ImGui::Separator();
-		
-		int w, h;
-		int display_w, display_h;
-		glfwGetWindowSize(window, &w, &h);
-		glfwGetFramebufferSize(window, &display_w, &display_h);
-
-		ImGui::Text("%d", w);
-		ImGui::Text("%d", h);
-		ImGui::Separator();
-
-		ImGui::Text("%d", display_w);
-		ImGui::Text("%d", display_h);
-
-		ImGui::End();
-
 		skygfx::Clear();
 		imgui.draw();
 		skygfx::Present();
@@ -51,7 +57,7 @@ int main()
 	};
 
 #ifdef EMSCRIPTEN
-	emscripten_set_main_loop(&loop, 0, 1);
+	emscripten_set_main_loop(loop, 0, 1);
 #else
 	while (!glfwWindowShouldClose(window)) { loop(); }
 #endif
