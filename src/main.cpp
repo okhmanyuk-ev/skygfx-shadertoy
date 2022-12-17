@@ -2,6 +2,7 @@
 #include "../lib/skygfx/examples/utils/utils.h"
 #include "../lib/skygfx/examples/utils/imgui_helper.h"
 #include <imgui.h>
+#include <imgui_stdlib.h>
 
 #ifdef EMSCRIPTEN
 #include <emscripten/html5.h>
@@ -22,6 +23,7 @@ std::function<void()> loop_func;
 void loop() { loop_func(); }
 
 void drawTriangle();
+void drawShaderEditor();
 
 int main()
 {
@@ -51,7 +53,7 @@ int main()
 
 	loop_func = [&]{
 		imgui.newFrame();
-		ImGui::ShowDemoWindow();
+		drawShaderEditor();
 		skygfx::Clear();
 		drawTriangle();
 		imgui.draw();
@@ -78,12 +80,18 @@ const std::string vertex_shader_code = R"(
 layout(location = POSITION_LOCATION) in vec3 aPosition;
 layout(location = COLOR_LOCATION) in vec4 aColor;
 
-layout(location = 0) out struct { vec4 Color; } Out;
+layout(location = 0) out struct
+{
+	vec3 position;
+	vec4 color;
+} Out;
+
 out gl_PerVertex { vec4 gl_Position; };
 
 void main()
 {
-	Out.Color = aColor;
+	Out.color = aColor;
+	Out.position = aPosition;
 	gl_Position = vec4(aPosition, 1.0);
 })";
 
@@ -91,11 +99,15 @@ const std::string fragment_shader_code = R"(
 #version 450 core
 
 layout(location = 0) out vec4 result;
-layout(location = 0) in struct { vec4 Color; } In;
+layout(location = 0) in struct
+{
+	vec3 position;
+	vec4 color;
+} In;
 
 void main()
 {
-	result = In.Color;
+	result = In.color;
 })";
 
 using Vertex = skygfx::Vertex::PositionColor;
@@ -108,14 +120,49 @@ const std::vector<Vertex> vertices = {
 
 const std::vector<uint32_t> indices = { 0, 1, 2 };
 
+std::shared_ptr<skygfx::Shader> shader = nullptr;
+
 void drawTriangle()
 {
-	static auto shader = skygfx::Shader(Vertex::Layout, vertex_shader_code, fragment_shader_code);
+	if (shader == nullptr)
+		shader = std::make_shared<skygfx::Shader>(Vertex::Layout, vertex_shader_code, fragment_shader_code);
 
 	skygfx::SetTopology(skygfx::Topology::TriangleList);
-	skygfx::SetShader(shader);
+	skygfx::SetShader(*shader);
 	skygfx::SetDynamicIndexBuffer(indices);
 	skygfx::SetDynamicVertexBuffer(vertices);
 	skygfx::Clear(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
 	skygfx::DrawIndexed(static_cast<uint32_t>(indices.size()));
+}
+
+std::string status = "Idle";
+
+void compile(const std::string& new_fragment_shader_code)
+{
+	try
+	{
+		shader = std::make_shared<skygfx::Shader>(Vertex::Layout, vertex_shader_code, new_fragment_shader_code);
+		status = "compiled";
+	}
+	catch (const std::runtime_error& e)
+	{
+		status = e.what();
+	}
+}
+
+void drawShaderEditor()
+{
+	ImGui::SetNextWindowSize(ImVec2(320, 240), ImGuiCond_FirstUseEver);
+
+	ImGui::Begin("Fragment shader");
+	ImGui::Text("%s", status.c_str());
+
+	static auto frag_source = fragment_shader_code;
+
+	ImGui::InputTextMultiline("src", &frag_source, ImVec2(-1, -1), ImGuiInputTextFlags_CallbackEdit, [](ImGuiInputTextCallbackData* data) {
+		compile(data->Buf);
+		return 0;
+	});
+
+	ImGui::End();
 }
