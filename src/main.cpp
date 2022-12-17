@@ -4,6 +4,9 @@
 #include <imgui.h>
 #include <imgui_stdlib.h>
 
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+
 #ifdef EMSCRIPTEN
 #include <emscripten/html5.h>
 
@@ -79,75 +82,101 @@ const std::string vertex_shader_code = R"(
 
 layout(location = POSITION_LOCATION) in vec3 aPosition;
 layout(location = COLOR_LOCATION) in vec4 aColor;
+layout(location = TEXCOORD_LOCATION) in vec2 aTexCoord;
 
-layout(location = 0) out struct
-{
-	vec3 position;
-	vec4 color;
-} Out;
-
+layout(location = 0) out struct { vec4 Color; vec2 TexCoord; } Out;
 out gl_PerVertex { vec4 gl_Position; };
 
 void main()
 {
-	Out.color = aColor;
-	Out.position = aPosition;
+	Out.Color = aColor;
+	Out.TexCoord = aTexCoord;
+#ifdef FLIP_TEXCOORD_Y
+	Out.TexCoord.y = 1.0 - Out.TexCoord.y;
+#endif
 	gl_Position = vec4(aPosition, 1.0);
 })";
 
 const std::string fragment_shader_code = R"(
 #version 450 core
 
-layout(location = 0) out vec4 result;
-layout(location = 0) in struct
+layout(binding = 1) uniform Settings
 {
-	vec3 position;
-	vec4 color;
-} In;
+	float time;
+} settings;
+
+layout(location = 0) out vec4 result;
+layout(location = 0) in struct { vec4 Color; vec2 TexCoord; } In;
+
+layout(binding = 0) uniform sampler2D sTexture;
 
 void main()
 {
-	result = In.color;
+	result = In.Color * texture(sTexture, In.TexCoord);
 })";
 
-using Vertex = skygfx::Vertex::PositionColor;
+using Vertex = skygfx::Vertex::PositionColorTexture;
 
 const std::vector<Vertex> vertices = {
-	{ {  0.5f, -0.5f, 0.0f }, { 0.0f, 0.0f, 1.0f, 1.0f } },
-	{ { -0.5f, -0.5f, 0.0f }, { 1.0f, 0.0f, 0.0f, 1.0f } },
-	{ {  0.0f,  0.5f, 0.0f }, { 0.0f, 1.0f, 0.0f, 1.0f } },
+	{ {  0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f, 1.0f }, { 1.0f, 1.0f } }, // bottom right
+	{ { -0.5f, -0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f, 1.0f }, { 0.0f, 1.0f } }, // bottom left
+	{ {  0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f, 1.0f }, { 1.0f, 0.0f } }, // top right
+	{ { -0.5f,  0.5f, 0.0f }, { 1.0f, 1.0f, 1.0f, 1.0f }, { 0.0f, 0.0f } }, // top left
 };
 
-const std::vector<uint32_t> indices = { 0, 1, 2 };
+const std::vector<uint32_t> indices = { 0, 1, 2, 2, 1, 3 };
+
+struct alignas(16) Settings
+{
+	float time = 0.0f;
+} settings;
 
 std::shared_ptr<skygfx::Shader> shader = nullptr;
+std::shared_ptr<skygfx::Texture> texture = nullptr;
 
-void drawTriangle()
-{
-	if (shader == nullptr)
-		shader = std::make_shared<skygfx::Shader>(Vertex::Layout, vertex_shader_code, fragment_shader_code);
+std::string status = "idle";
 
-	skygfx::SetTopology(skygfx::Topology::TriangleList);
-	skygfx::SetShader(*shader);
-	skygfx::SetDynamicIndexBuffer(indices);
-	skygfx::SetDynamicVertexBuffer(vertices);
-	skygfx::Clear(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
-	skygfx::DrawIndexed(static_cast<uint32_t>(indices.size()));
-}
-
-std::string status = "Idle";
-
-void compile(const std::string& new_fragment_shader_code)
+void make_shader(const std::string& vertex_code, const std::string& fragment_code)
 {
 	try
 	{
-		shader = std::make_shared<skygfx::Shader>(Vertex::Layout, vertex_shader_code, new_fragment_shader_code);
+		shader = std::make_shared<skygfx::Shader>(Vertex::Layout, vertex_code, fragment_code);
 		status = "compiled";
 	}
 	catch (const std::runtime_error& e)
 	{
 		status = e.what();
 	}
+}
+
+void drawTriangle()
+{
+	if (shader == nullptr)
+	{
+		make_shader(vertex_shader_code, fragment_shader_code);
+	}
+
+	if (texture == nullptr)
+	{
+		int tex_width = 0;
+		int tex_height = 0;
+		void* tex_memory = stbi_load("assets/bricks.png", &tex_width, &tex_height, nullptr, 4); // TODO: this image has 3 channels, we must can load that type of images
+
+		texture = std::make_shared<skygfx::Texture>(tex_width, tex_height, 4/*TODO: no magic numbers should be*/, tex_memory, true);
+	}
+
+	settings.time = static_cast<float>(glfwGetTime());
+
+	skygfx::SetTopology(skygfx::Topology::TriangleList);
+	skygfx::SetSampler(skygfx::Sampler::Linear);
+	skygfx::SetShader(*shader);
+	skygfx::SetDynamicVertexBuffer(vertices);
+	skygfx::SetDynamicIndexBuffer(indices);
+	skygfx::SetTexture(0, *texture);
+	skygfx::SetDynamicUniformBuffer(1, settings);
+
+	skygfx::Clear(glm::vec4{ 0.0f, 0.0f, 0.0f, 1.0f });
+	skygfx::DrawIndexed(static_cast<uint32_t>(indices.size()));
 }
 
 void drawShaderEditor()
@@ -160,7 +189,7 @@ void drawShaderEditor()
 	static auto frag_source = fragment_shader_code;
 
 	ImGui::InputTextMultiline("src", &frag_source, ImVec2(-1, -1), ImGuiInputTextFlags_CallbackEdit, [](ImGuiInputTextCallbackData* data) {
-		compile(data->Buf);
+		make_shader(vertex_shader_code, data->Buf);
 		return 0;
 	});
 

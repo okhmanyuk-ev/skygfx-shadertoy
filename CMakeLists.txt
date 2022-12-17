@@ -8,6 +8,9 @@ if(APPLE)
 	set(CMAKE_MACOSX_BUNDLE YES)
 endif()
 
+set(ASSETS_FOLDER_NAME assets)
+set(ASSETS_FOLDER_PATH ${CMAKE_SOURCE_DIR}/lib/skygfx/examples/${ASSETS_FOLDER_NAME})
+
 set(LIBS_FOLDER "libs")
 
 file(GLOB ALL_SRC 
@@ -16,10 +19,12 @@ file(GLOB ALL_SRC
 	lib/skygfx/examples/utils/*.cpp
 	lib/skygfx/examples/utils/*.h
 	lib/skygfx/examples/lib/imgui/backends/imgui_impl_glfw.cpp
-	${RESOURCES}
+	${ASSETS_FOLDER_PATH}
 )
 
 add_executable(${PROJECT_NAME} ${ALL_SRC})
+target_include_directories(${PROJECT_NAME} PUBLIC lib/skygfx/examples/lib/stb)
+set_target_properties(${PROJECT_NAME} PROPERTIES RESOURCE ${ASSETS_FOLDER_PATH})
 
 # emscripten
 
@@ -34,6 +39,7 @@ if(EMSCRIPTEN)
 	set(LINKER_FLAGS "${LINKER_FLAGS} -s USE_WEBGL2")
 	set(LINKER_FLAGS "${LINKER_FLAGS} -s USE_GLFW=3")
 	set(LINKER_FLAGS "${LINKER_FLAGS} --shell-file ${CMAKE_SOURCE_DIR}/emscripten/shell.html")
+	set(LINKER_FLAGS "${LINKER_FLAGS} --preload-file ${ASSETS_FOLDER_PATH}@${ASSETS_FOLDER_NAME}")
 
 	set(COMPILER_FLAGS "${COMPILER_FLAGS} -s NO_DISABLE_EXCEPTION_CATCHING")
 	set(COMPILER_FLAGS "${COMPILER_FLAGS} -s DISABLE_EXCEPTION_THROWING=0")
